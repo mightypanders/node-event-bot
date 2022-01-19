@@ -1,16 +1,17 @@
 import { REST } from '@discordjs/rest'
-import { SlashCommandBuilder } from '@discordjs/builders'
 import { commands } from './constants'
 import { Routes } from 'discord-api-types/v9'
 import { config } from './configuration'
-import { Client, CommandInteraction, GuildMember, Intents, Interaction } from 'discord.js'
+import { Client, Collection, CommandInteraction, GuildMember, GuildScheduledEvent, GuildScheduledEventManager, Intents, Snowflake } from 'discord.js'
 import RegistrationHandler from './RegistrationHandler'
 import { discordCommand } from './interfaces'
+import eventHandler from './eventHandler'
 
 export default class DiscordAdapter {
 	private rest: REST
 	private client: Client
 	private registration: RegistrationHandler
+
 	public constructor() {
 		this.rest = new REST({ version: '9' }).setToken(config.token)
 		this.client = new Client({ intents: [Intents.FLAGS.GUILDS] })
@@ -83,11 +84,21 @@ export default class DiscordAdapter {
 		}
 		return
 	}
-	public async show(interaction: CommandInteraction, registration: RegistrationHandler): Promise<void> {
+	public async showNext(interaction: CommandInteraction, registration: RegistrationHandler): Promise<void> {
 		const discordUser: GuildMember = <GuildMember>interaction.member
 		const result = registration.getNameRegisteredForDiscordUser(discordUser)
 		await interaction.reply(JSON.stringify(result, null, 2))
 		return
+	}
+	public async listEvents(interaction: CommandInteraction, registration: RegistrationHandler): Promise<void> {
+		const guild = interaction.guild
+		if (!guild) {
+			console.log(`There is no guild here`)
+			return
+		}
+
+		const output = new eventHandler().listAllEvents(guild)
+		await interaction.reply(output)
 	}
 
 	public commandList: discordCommand[] = [
@@ -105,45 +116,14 @@ export default class DiscordAdapter {
 			]
 		},
 		{
-			name: commands.LIST_COMMAND,
-			description: "Lists all registerd users",
-			performCommand: this.listUsers
+			name: "shownext",
+			description: "Shows next Events",
+			performCommand: this.showNext
 		},
 		{
-			name: commands.REMOVE_COMMAND,
-			description: "Remove the mapping for this discord user",
-			performCommand: this.removeUser
-		},
-		{
-			name: commands.REGISTER_COMMAND,
-			description: "Register the senders discord name for a supplied steam name",
-			options: [
-				{
-					name: 'steamname',
-					description: 'The steamname that should be registered',
-					required: true,
-					type: 3
-				}
-			],
-			performCommand: this.registerUser
-		},
-		{
-			name: commands.SHOW_FOR_STEAM_COMMAND,
-			description: "Show the discord that's registered for a steam name",
-			performCommand: this.showForSteam,
-			options: [
-				{
-					name: 'steamname',
-					description: 'The steamname that should be searched',
-					required: true,
-					type: 3
-				}
-			],
-		},
-		{
-			name: commands.SHOW_COMMAND,
-			description: "Show the Steamname that's registered for this discord name",
-			performCommand: this.show
+			name: "listevents",
+			description: "Lists all Events",
+			performCommand: this.listEvents
 		}
 	]
 }
