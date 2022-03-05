@@ -1,22 +1,22 @@
 import { REST } from '@discordjs/rest'
 import { Routes } from 'discord-api-types/v9'
 import { config } from './configuration'
-import { Client, Collection, CommandInteraction, GuildMember, GuildScheduledEvent, GuildScheduledEventManager, Intents, Snowflake } from 'discord.js'
-import RegistrationHandler from './RegistrationHandler'
+import { Client, CommandInteraction, Intents, } from 'discord.js'
 import { discordCommand } from './interfaces'
 import eventHandler from './eventHandler'
+import fs from 'fs'
 
 export default class DiscordAdapter {
 	private rest: REST
 	private client: Client
-	private registration: RegistrationHandler
+	private eventFilePath = `${__dirname}/events`
 
 	public constructor() {
 		this.rest = new REST({ version: '9' }).setToken(config.token)
-		this.client = new Client({ intents: [Intents.FLAGS.GUILDS] })
-		this.registration = RegistrationHandler.Instance
-		this.setupCallbacks(this.client)
-		this.client.login(config.token)
+		this.client = new Client({ intents: [Intents.FLAGS.GUILDS, Intents.FLAGS.GUILD_SCHEDULED_EVENTS] })
+		this.registerEventCallback().then(() => {
+			this.client.login(config.token)
+		})
 		this.registerCommands(this.commandList)
 	}
 	public async registerCommands(pCommands: discordCommand[]) {
@@ -28,16 +28,31 @@ export default class DiscordAdapter {
 			console.log(`Error refreshing slash commands: ${error}`)
 		}
 	}
-	private setupCallbacks(c: Client) {
-		c.on('ready', () => {
-			console.log(`Logged in as ${c.user?.tag}`)
-		})
-		c.on('interactionCreate', async interaction => {
-			if (!interaction.isCommand()) return
-			const interactionCommand = this.commandList.find(x => x.name == interaction.commandName)
-			if (interactionCommand)
-				interactionCommand.performCommand(interaction, this.registration)
-		})
+	private async importFile(filepath: string): Promise<any> {
+		console.debug(`Importing ${filepath}`)
+		const imported = await import(filepath)
+		console.debug(`Imported ${JSON.stringify(imported)}`)
+		return imported
+	}
+	public async registerEventCallback() {
+		try {
+			const eventFiles = fs.readdirSync(this.eventFilePath).filter(file => file.endsWith('.ts') || file.endsWith('.js'));
+			for (const file of eventFiles) {
+				const filePath = `${this.eventFilePath}/${file}`
+				const event = await this.importFile(filePath)
+				if (event.once) {
+					console.log(`Registering once ${file}`)
+					this.client.once(event.name, (...args: any[]) => event.execute(...args))
+				}
+				else {
+					console.log(`Registering on ${file}`)
+					this.client.on(event.name, (...args: any[]) => event.execute(...args))
+				}
+			}
+			console.log(this.client.eventNames())
+		} catch (error) {
+			console.error(error)
+		}
 	}
 	public async showNext(interaction: CommandInteraction): Promise<void> {
 		const guild = interaction.guild
